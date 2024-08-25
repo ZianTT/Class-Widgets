@@ -1,20 +1,18 @@
-import ctypes
-import subprocess
-import time
 from shutil import copy
-
-from playsound import playsound
-
 from PyQt6 import uic
 from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QProgressBar, QGraphicsBlurEffect, QPushButton, \
     QGraphicsDropShadowEffect, QSystemTrayIcon, QMenu
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QRect, QEasingCurve, QParallelAnimationGroup
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QRect, QEasingCurve
 from PyQt6.QtGui import QColor, QIcon
 import sys
 from qfluentwidgets import Theme, setTheme, setThemeColor
 import datetime as dt
 import list
 import conf
+import tip_toast
+
+import menu
+import exact_menu
 
 today = dt.date.today()
 filename = conf.read_conf('General', 'schedule')
@@ -31,12 +29,6 @@ timeline_data = {}
 next_lessons = []
 
 bkg_opacity = 165  # 模糊label的透明度(0~255)
-
-attend_class = 'audio/attend_class.wav'
-finish_class = 'audio/finish_class.wav'
-
-attend_class_p_color = '#ff8800'
-finish_class_p_color = '#5ADFAA'
 
 
 # 获取课程上下午开始时间
@@ -88,22 +80,19 @@ def get_countdown():
     if afternoon_st != 0 and current_dt > afternoon_st - dt.timedelta(minutes=30):
         c_time = afternoon_st  # 开始时间段
         if current_dt == c_time:
-            tip_toast(1).show()  # 上课
+            tip_toast.main(1)  # 上课
         if current_dt >= afternoon_st:
             for item_name, item_time in timeline_data.items():
                 if item_name.startswith('aa') or item_name.startswith('fa'):
 
                     add_time = int(item_time)
                     c_time += dt.timedelta(minutes=add_time)
-
                     # 判断时间是否上下课，发送通知
                     if current_dt == c_time:
-                        if item_name.startswith('aa'):
-                            toast = tip_toast(0)
-                            toast.show()  # 下课
+                        if item_name.startswith('fa'):
+                            tip_toast.main(1)  # 上课
                         else:
-                            toast = tip_toast(1)
-                            toast.show()  # 上课
+                            tip_toast.main(0)  # 下课`
 
                     if c_time >= current_dt:
                         # 根据所在时间段使用不同标语
@@ -128,7 +117,7 @@ def get_countdown():
     elif morning_st != 0:
         c_time = morning_st  # 复制 morning_st 时间
         if current_dt == c_time:
-            tip_toast(1).show()  # 上课
+            tip_toast.main(1)  # 上课
         if current_dt >= morning_st:
             for item_name, item_time in timeline_data.items():
                 if item_name.startswith('am') or item_name.startswith('fm'):
@@ -138,12 +127,10 @@ def get_countdown():
 
                     # 判断时间是否上下课，发送通知
                     if current_dt == c_time:
-                        if item_name.startswith('am'):
-                            toast = tip_toast(0)
-                            toast.show()  # 下课
+                        if item_name.startswith('fm'):
+                            tip_toast.main(1)  # 上课
                         else:
-                            toast = tip_toast(1)
-                            toast.show()  # 上课
+                            tip_toast.main(0)  # 下课`
                     if c_time >= current_dt:
                         # 根据所在时间段使用不同标语
                         if item_name.startswith('am'):
@@ -258,106 +245,6 @@ get_current_lessons()
 get_current_state()
 get_next_lessons()
 
-
-class tip_toast(QWidget):  # 上下课提示
-    def __init__(self, state=1):
-        super().__init__()
-        uic.loadUi('widget-toast-bar.ui', self)
-
-        # 标题
-        title = self.findChild(QPushButton, 'alert')
-        # 虽然解体级音质，但能用，就没计较了
-        if state:
-            title.setText('  上课')
-            playsound(attend_class, block=False)
-            setThemeColor(attend_class_p_color)  # 主题色
-        else:
-            title.setText('  下课')
-            playsound(finish_class, block=False)
-            setThemeColor(finish_class_p_color)
-
-        # 设置窗口无边框和透明背景
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-
-        # 点击穿透
-        hwnd = int(self.winId())
-        ctypes.windll.user32.SetWindowLongW(hwnd, -20, ctypes.windll.user32.GetWindowLongW(hwnd, -20) | 0x80000 | 0x20)
-
-        # 设置样式表
-        if state:
-            title.setStyleSheet('border: none; color: rgba(255, 255, 255, 255); font-weight: bold; border-radius: 8px; '
-                                'background-color: qlineargradient('
-                                'spread:pad, x1:0, y1:0, x2:1, y2:1,'
-                                ' stop:0 rgba(255, 200, 150, 255), stop:1 rgba(217, 147, 107, 255)'
-                                ');'
-                                )
-        else:
-            title.setStyleSheet('border: none; color: rgba(255, 255, 255, 255); font-weight: bold; border-radius: 8px; '
-                                'background-color: qlineargradient('
-                                'spread:pad, x1:0, y1:0, x2:1, y2:1,'
-                                ' stop:0 rgba(166, 200, 140, 255), stop:1 rgba(107, 217, 170, 255)'
-                                ');'
-                                )
-
-        # 设置窗口位置
-        self.animate_window()
-
-    def animate_window(self):
-        # 设置窗口初始大小
-        mini_size_x = 120
-        mini_size_y = 20
-
-        # 放大效果
-        self.geometry_animation = QPropertyAnimation(self, b"geometry")
-        self.geometry_animation.setDuration(350)  # 动画持续时间
-        self.geometry_animation.setStartValue(
-            QRect(int(start_x + mini_size_x / 2), int(start_y + mini_size_y / 2),
-                  total_width - mini_size_x, 125 - mini_size_y)
-        )
-        self.geometry_animation.setEndValue(QRect(start_x, start_y, total_width, 125))
-        self.geometry_animation.setEasingCurve(QEasingCurve.Type.InOutCirc)
-
-        # 渐显
-        self.opacity_animation = QPropertyAnimation(self, b"windowOpacity")
-        self.opacity_animation.setDuration(400)
-        self.opacity_animation.setStartValue(0)
-        self.opacity_animation.setEndValue(1)
-
-        # 动画组
-        self.animation_group = QParallelAnimationGroup(self)
-        self.animation_group.addAnimation(self.opacity_animation)
-        self.animation_group.addAnimation(self.geometry_animation)
-        self.animation_group.finished.connect(self.close_window)
-
-        self.animation_group.start()
-
-    def close_window(self):
-        time.sleep(0.7)
-        mini_size_x = 120
-        mini_size_y = 20
-        # 放大效果
-        self.geometry_animation_close = QPropertyAnimation(self, b"geometry")
-        self.geometry_animation_close.setDuration(350)  # 动画持续时间
-        self.geometry_animation_close.setStartValue(QRect(start_x, start_y, total_width, 125))
-        self.geometry_animation_close.setEndValue(
-            QRect(int(start_x + mini_size_x / 2), int(start_y + mini_size_y / 2),
-                  total_width - mini_size_x, 125 - mini_size_y))
-        self.geometry_animation_close.setEasingCurve(QEasingCurve.Type.InOutCirc)
-
-        self.opacity_animation_close = QPropertyAnimation(self, b"windowOpacity")
-        self.opacity_animation_close.setDuration(200)
-        self.opacity_animation_close.setStartValue(1)
-        self.opacity_animation_close.setEndValue(0)
-
-        self.animation_group_close = QParallelAnimationGroup(self)
-        self.animation_group_close.addAnimation(self.geometry_animation_close)
-        self.animation_group_close.addAnimation(self.opacity_animation_close)
-        self.animation_group_close.finished.connect(self.close)
-
-        self.animation_group_close.start()
-
-
 class DesktopWidget(QWidget):  # 主要小组件
     def __init__(self, path='widget-time.ui', pos=(100, 50), enable_tray=False):
         super().__init__()
@@ -365,21 +252,19 @@ class DesktopWidget(QWidget):  # 主要小组件
         uic.loadUi(path, self)
 
         setTheme(Theme.LIGHT)
-        setThemeColor('#0078d6')
+        setThemeColor('#36ABCF')
+        self.isHidden = False  # 窗口是否隐藏
 
         # 设置窗口无边框和透明背景
         if int(conf.read_conf('General', 'pin_on_top')):  # 置顶
             self.setWindowFlags(
-                Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+                Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool |
+                Qt.WindowType.WindowDoesNotAcceptFocus
+            )
         else:
             self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
 
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-
-        # 点击穿透
-        if sys.platform == 'win32' and path != 'widget-current-activity.ui':
-            hwnd = int(self.winId())
-            ctypes.windll.user32.SetWindowLongW(hwnd, -20, ctypes.windll.user32.GetWindowLongW(hwnd, -20) | 0x80000 | 0x20)
 
         # 添加阴影效果
         shadow_effect = QGraphicsDropShadowEffect(self)
@@ -398,7 +283,7 @@ class DesktopWidget(QWidget):  # 主要小组件
                 '恢复不透明度', lambda: conf.write_conf('General', 'transparent', '240'))
             self.tray_menu.addAction(
                 '降低不透明度', lambda: conf.write_conf('General', 'transparent', '185'))
-            self.tray_menu.addAction('设置', lambda: subprocess.Popen(['Settings.exe']))
+            self.tray_menu.addAction('设置', self.open_settings)
             self.tray_menu.addAction('强制退出', lambda: sys.exit())
 
             self.tray_icon.setContextMenu(self.tray_menu)
@@ -424,7 +309,7 @@ class DesktopWidget(QWidget):  # 主要小组件
                 # 模糊效果
                 self.blur_effect = QGraphicsBlurEffect()
                 button = self.findChild(QPushButton, 'subject')
-                button.clicked.connect(lambda: subprocess.Popen(['Exact_menu.exe']))
+                button.clicked.connect(self.open_exact_menu)
             case 'widget-next-activity.ui':  # 接下来的活动
                 self.nl_text = self.findChild(QLabel, 'next_lesson_text')
 
@@ -434,16 +319,44 @@ class DesktopWidget(QWidget):  # 主要小组件
         self.update_data(1)
 
         self.timer = QTimer(self)
+        self.timer.setInterval(800)
         self.timer.timeout.connect(self.update_data)
-        self.timer.start(1000)
+        self.timer.start()
+
+    def open_settings(self):
+        self.menu = menu.desktop_widget()
+        self.menu.show()
+
+    def open_exact_menu(self):
+        if conf.read_conf('Temp', 'hide') != '1':  # 如果没有隐藏
+            self.exmenu = exact_menu.ExactMenu()
+            self.exmenu.show()
 
     def animate_window(self, target_pos):  # 窗口动画！
         # 创建位置动画
         self.animation = QPropertyAnimation(self, b"geometry")
-        self.animation.setDuration(625)  # 持续时间
+        self.animation.setDuration(525)  # 持续时间
         self.animation.setStartValue(QRect(target_pos[0], -self.height(), self.width(), self.height()))
         self.animation.setEndValue(QRect(target_pos[0], target_pos[1], self.width(), self.height()))
         self.animation.setEasingCurve(QEasingCurve.Type.InOutCirc)  # 设置动画效果
+        self.animation.start()
+
+    def animate_auto_hide(self):  # 自动隐藏窗口
+        self.animation = QPropertyAnimation(self, b"geometry")
+        self.animation.setDuration(625)  # 持续时间
+        self.animation.setStartValue(QRect(self.x(), self.y(), self.width(), self.height()))
+        self.animation.setEndValue(QRect(self.x(), -self.height()+40, self.width(), self.height()))
+        self.animation.setEasingCurve(QEasingCurve.Type.InOutCirc)  # 设置动画效果
+        #self.animation.finished.connect(self.hide)
+        self.animation.start()
+
+    def animate_show(self):  # 显示窗口
+        self.animation = QPropertyAnimation(self, b"geometry")
+        self.animation.setDuration(625)  # 持续时间
+        self.animation.setStartValue(QRect(self.x(), self.y(), self.width(), self.height()))
+        self.animation.setEndValue(QRect(self.x(), int(conf.read_conf('General', 'margin')), self.width(), self.height()))
+        self.animation.setEasingCurve(QEasingCurve.Type.InOutCirc)  # 设置动画效果
+        #self.animation.finished.connect(self.show)
         self.animation.start()
 
     def update_data(self, first_setup=0):
@@ -454,15 +367,22 @@ class DesktopWidget(QWidget):  # 主要小组件
 
         current_time = dt.datetime.now().strftime('%H:%M:%S')
         filename = conf.read_conf('General', 'schedule')
-        start_y = int(conf.read_conf('General', 'margin'))
-
         get_start_time()
         get_current_lessons()
         get_current_state()
         get_next_lessons()
 
         if not first_setup:  # 如果不是初次启动
-            self.move(self.x(), start_y)
+            if conf.read_conf('General', 'auto_hide') != '0':  # 自动隐藏是否打开
+                if current_state == '课间' or current_state == '暂无课程':  # 上课时隐藏
+                    self.animate_show()
+                else:
+                    self.animate_auto_hide()
+            else:  # 手动隐藏
+                if conf.read_conf('Temp', 'hide') == '1':
+                    self.animate_auto_hide()
+                else:
+                    self.animate_show()
 
         if conf.is_temp_week():  # 调休日
             current_week = conf.read_conf('Temp', 'set_week')
@@ -474,6 +394,8 @@ class DesktopWidget(QWidget):  # 主要小组件
         transparent = conf.read_conf('General', 'transparent')
         bkg = self.findChild(QLabel, 'label')
         bkg.setStyleSheet(f'background-color: rgba(242, 243, 245, {int(transparent)}); border-radius: 8px')  # 背景透明度
+
+        cd_list = get_countdown()
 
         # 说实在这到底是怎么跑起来的
         if hasattr(self, 'day_text'):
@@ -495,14 +417,22 @@ class DesktopWidget(QWidget):  # 主要小组件
             self.nl_text.setText(get_next_lessons_text())
 
         if hasattr(self, 'activity_countdown'):
-            if get_countdown():
-                self.activity_countdown.setText(get_countdown()[1])
-                self.ac_title.setText(get_countdown()[0])
-                self.countdown_progress_bar.setValue(get_countdown()[2])
+            if cd_list:
+                self.activity_countdown.setText(cd_list[1])
+                self.ac_title.setText(cd_list[0])
+                self.countdown_progress_bar.setValue(cd_list[2])
+
+# 点击自动隐藏
+    def mousePressEvent(self, event):
+        if conf.read_conf('Temp', 'hide') == '0':  # 置顶
+            conf.write_conf('Temp', 'hide', '1')
+        else:
+            conf.write_conf('Temp', 'hide', '0')
 
 
 def init_config():
     conf.write_conf('Temp', 'set_week', '')
+    conf.write_conf('Temp', 'hide', '0')
     if conf.read_conf('General', 'temp_schedule'):
         copy('config/schedule/backup.json', f'config/schedule/{filename}')
         conf.write_conf('Temp', 'temp_schedule', '')
@@ -523,9 +453,9 @@ if __name__ == '__main__':
     screen_geometry = app.primaryScreen().availableGeometry()
     screen_width = screen_geometry.width()
 
-    window_width = [230, 200, 360, 290]  # 所有组件窗口的宽度
+    # 所有组件窗口的宽度
     spacing = -5
-    total_width = sum(window_width, spacing * (len(window_width) - 1))
+    total_width = sum(list.window_width, spacing * (len(list.window_width) - 1))
 
     start_x = int((screen_width - total_width) / 2)
     start_y = int(conf.read_conf('General', 'margin'))
@@ -534,7 +464,7 @@ if __name__ == '__main__':
     def cal_start_width(num):
         width = 0
         for i in range(num):
-            width += window_width[i]
+            width += list.window_width[i]
         return int(start_x + spacing * num + width)
 
     if conf.read_conf('Other', 'InitialStartUp'):  # 首次启动
